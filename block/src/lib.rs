@@ -12,6 +12,7 @@
 extern crate log;
 
 pub mod async_io;
+pub mod composite;
 pub mod fixed_vhd;
 #[cfg(feature = "io_uring")]
 /// Enabled with the `"io_uring"` feature
@@ -59,6 +60,7 @@ use vmm_sys_util::eventfd::EventFd;
 use vmm_sys_util::{aio, ioctl_io_nr, ioctl_ioc_nr};
 
 use crate::async_io::{AsyncIo, AsyncIoError, AsyncIoResult};
+use crate::composite::{Composite, CompositeError};
 use crate::fixed_vhd::FixedVhd;
 use crate::qcow::{QcowFile, RawFile};
 use crate::vhdx::{Vhdx, VhdxError};
@@ -96,6 +98,8 @@ pub enum Error {
     TooManyDescriptors,
     #[error("Failure in vhdx: {0}")]
     VhdxError(VhdxError),
+    #[error("Failure in composite: {0}")]
+    CompositeError(CompositeError),
 }
 
 fn build_device_id(disk_path: &Path) -> result::Result<String, Error> {
@@ -745,6 +749,7 @@ pub enum ImageType {
     Qcow2,
     Raw,
     Vhdx,
+    Composite,
 }
 
 const QCOW_MAGIC: u32 = 0x5146_49fb;
@@ -769,6 +774,10 @@ pub fn read_aligned_block_size(f: &mut File) -> std::io::Result<Vec<u8>> {
 
 /// Determine image type through file parsing.
 pub fn detect_image_type(f: &mut File) -> std::io::Result<ImageType> {
+    if composite::is_composite(f)? {
+        return Ok(ImageType::Composite);
+    }
+
     let block = read_aligned_block_size(f)?;
 
     // Check 4 first bytes to get the header value and determine the image type
@@ -805,6 +814,9 @@ pub fn create_disk_file(mut file: File, direct_io: bool) -> Result<Box<dyn Block
             Box::new(Vhdx::new(file).map_err(Error::VhdxError)?) as Box<dyn BlockBackend>
         }
         ImageType::Raw => Box::new(RawFile::new(file, direct_io)) as Box<dyn BlockBackend>,
+        ImageType::Composite => {
+            Box::new(Composite::new(file).map_err(Error::CompositeError)?) as Box<dyn BlockBackend>
+        }
     })
 }
 

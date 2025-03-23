@@ -29,6 +29,7 @@ use arch::{layout, NumaNodes};
 #[cfg(target_arch = "aarch64")]
 use arch::{DeviceType, MmioDeviceInfo};
 use block::async_io::DiskFile;
+use block::composite::{self, Composite};
 use block::fixed_vhd_sync::FixedVhdDiskSync;
 use block::qcow_sync::QcowDiskSync;
 use block::raw_async_aio::RawFileDiskAio;
@@ -444,6 +445,9 @@ pub enum DeviceManagerError {
 
     /// Failed to create FixedVhdxDiskSync
     CreateFixedVhdxDiskSync(vhdx::VhdxError),
+
+    /// Failed to create Composite
+    CreateCompositeDisk(composite::CompositeError),
 
     /// Failed to add DMA mapping handler to virtio-mem device.
     AddDmaMappingHandlerVirtioMem(virtio_devices::mem::Error),
@@ -2352,6 +2356,11 @@ impl DeviceManager {
                         info!("Using synchronous RAW disk file");
                         Box::new(RawFileDiskSync::new(file)) as Box<dyn DiskFile>
                     }
+                }
+                ImageType::Composite => {
+                    info!("Using synchronous Composite disk file");
+                    Box::new(Composite::new(file).map_err(DeviceManagerError::CreateCompositeDisk)?)
+                        as Box<dyn DiskFile>
                 }
                 ImageType::Qcow2 => {
                     info!("Using synchronous QCOW disk file");
